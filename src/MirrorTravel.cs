@@ -34,8 +34,6 @@ internal sealed class MirrorTravel
         }
     }
 
-    internal bool IsTravelling => pending != null;
-
     internal static bool NearMirror(out Entity player)
     {
         player = null!;
@@ -69,13 +67,17 @@ internal sealed class MirrorTravel
         Plugin.Logger.LogInfo($"Recorded mirror {entry.Label} at {position}");
     }
 
-    internal List<Mirror> GetDestinations()
+    internal Mirror? FindDestination(LevelMapItem? item)
     {
+        if (!item || pending != null || !NearMirror(out var player)) return null;
+        var savePoint = item!.TryCast<LevelMapSavePointItem>();
+        var door = item.TryCast<LevelMapZDoorItem>();
+        var roomId = savePoint ? item.itemWorldRoomId : door ? door!.linkedWorldRoomUniqueID : null;
+        if (string.IsNullOrEmpty(roomId)) return null;
         var explorer = MainCharacterSingleton.GetComponent<ExplorerComponent>();
-        var origin = LevelHelpers.GetCurrentRoom(MainCharacterSingleton.GetEntity())?.worldRoomData?.id;
-        if (!explorer) return new();
-        return mirrors.Where(m => m.RoomId != origin && explorer.UsedSavePoint(m.RoomId) && FindLevel(m.LevelGuid))
-            .OrderBy(m => m.Label).ToList();
+        var origin = LevelHelpers.GetCurrentRoom(player)?.worldRoomData?.id;
+        if (!explorer || roomId == origin || !explorer.UsedSavePoint(roomId)) return null;
+        return mirrors.FirstOrDefault(m => m.RoomId == roomId && FindLevel(m.LevelGuid));
     }
 
     private static LevelID? FindLevel(string guid)

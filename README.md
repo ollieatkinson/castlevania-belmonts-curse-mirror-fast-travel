@@ -10,7 +10,7 @@ Requires [BepInEx 6 for Unity IL2CPP, Windows x64](https://docs.bepinex.dev/mast
 
 Copy `MirrorFastTravel.dll` into `BepInEx/plugins/`.
 
-Use a mirror normally, then press **F8** beside it to open the travel list. Choose another recorded mirror with the mouse. **F8** or **Escape** closes the list. The game pauses while the list is open.
+Use a mirror normally to record it. While standing beside a mirror, open the **area map** and select another recorded mirror. Use the map's normal interact button when **Travel** appears, then confirm in the game's popup. Cancelling leaves you on the map.
 
 Arrival positions are stored in `BepInEx/config/ollieatkinson.mirrorfasttravel.mirrors.json`. The mod uses the game's saving and level-loading code for travel. It does not unlock undiscovered mirrors or change game files.
 

@@ -19,8 +19,8 @@ public sealed class Plugin : BasePlugin
         Logger = Log;
         Travel = new MirrorTravel();
         new Harmony(Id).PatchAll(typeof(Plugin).Assembly);
-        AddComponent<MirrorMenu>();
-        Log.LogInfo("Mirror Fast Travel 0.1.0 loaded. Use a mirror to record it; F8 opens travel nearby.");
+        AddComponent<MapTravel>();
+        Log.LogInfo("Mirror Fast Travel 0.1.0 loaded. Select a recorded mirror on the area map to travel.");
     }
 }
 
