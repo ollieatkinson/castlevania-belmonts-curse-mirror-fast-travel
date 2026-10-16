@@ -1,38 +1,19 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using BepInEx;
 using MotherBase.ApplicationFlowManager;
 using MotherBase.EntityFramework;
+using MotherBase.RoomDesigner;
+using RedWine.ResourceManagement;
+using RoomManager;
 using UnityEngine;
 
 namespace MirrorFastTravel;
 
-internal sealed record Mirror(string RoomId, string LevelGuid, string Label, float X, float Y, float Z)
-{
-    [JsonIgnore]
-    public Vector3 Position => new(X, Y, Z);
-}
+internal sealed record Mirror(string RoomId, string LevelGuid, string Label, Vector3 RoomCenter);
 
 internal sealed class MirrorTravel
 {
-    private readonly string path = Path.Combine(Paths.ConfigPath, Plugin.Id + ".mirrors.json");
-    private readonly List<Mirror> mirrors;
     private Mirror? pending;
-
-    internal MirrorTravel()
-    {
-        try
-        {
-            mirrors = File.Exists(path)
-                ? JsonSerializer.Deserialize<List<Mirror>>(File.ReadAllText(path)) ?? new()
-                : new();
-        }
-        catch (Exception e)
-        {
-            Plugin.Logger.LogWarning($"Could not read mirror records: {e.Message}");
-            mirrors = new();
-        }
-    }
+    private Vector3? arrival;
+    private bool returnToSave;
 
     internal static bool NearMirror(out Entity player)
     {
@@ -42,42 +23,39 @@ internal sealed class MirrorTravel
         var room = LevelHelpers.GetCurrentRoom(player);
         if (!room || room.worldRoomData?.roomData?.configuration?.TryCast<RedWineRoomConfiguration>()?.isSaveRoom != true)
             return false;
-        foreach (var mirror in UnityEngine.Object.FindObjectsOfType<SavePoint>())
-        {
+        foreach (var mirror in room.GetComponentsInChildren<SavePoint>(true))
             if (mirror.isActiveAndEnabled && Vector2.Distance(player.transform.position, mirror.transform.position) < 6f)
                 return true;
-        }
         return false;
     }
 
-    internal void Record(Entity player, Vector3 position)
+    internal static bool WasVisited(string roomId)
     {
-        var room = LevelHelpers.GetCurrentRoom(player)?.worldRoomData;
-        var level = LevelManager.Get()?.currentLevelVariable?.CurrentValue;
-        if (room?.roomData?.configuration?.TryCast<RedWineRoomConfiguration>()?.isSaveRoom != true || !level)
-            return;
-        if (!float.IsFinite(position.x) || !float.IsFinite(position.y) || !float.IsFinite(position.z)) return;
-
-        var entry = new Mirror(room.id, level!.guid, $"{level.name} — {room.instanceName}", position.x, position.y, position.z);
-        mirrors.RemoveAll(m => m.RoomId == entry.RoomId);
-        mirrors.Add(entry);
-        Directory.CreateDirectory(Paths.ConfigPath);
-        File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(mirrors));
-        File.Move(path + ".tmp", path, overwrite: true);
-        Plugin.Logger.LogInfo($"Recorded mirror {entry.Label} at {position}");
+        var explorer = MainCharacterSingleton.GetComponent<ExplorerComponent>();
+        return explorer && explorer.worldRoomExplorationStates.TryGetValue(roomId, out var state)
+            && state != null && state.isSaveRoom
+            && (state.usedRoomSavePoint || state.ExploredAtLeastOneChunk() || state.enteredZonesIds?.Count > 0);
     }
 
     internal Mirror? FindDestination(LevelMapItem? item)
     {
-        if (!item || pending != null || !NearMirror(out var player)) return null;
-        var savePoint = item!.TryCast<LevelMapSavePointItem>();
-        var door = item.TryCast<LevelMapZDoorItem>();
-        var roomId = savePoint ? item.itemWorldRoomId : door ? door!.linkedWorldRoomUniqueID : null;
-        if (string.IsNullOrEmpty(roomId)) return null;
-        var explorer = MainCharacterSingleton.GetComponent<ExplorerComponent>();
-        var origin = LevelHelpers.GetCurrentRoom(player)?.worldRoomData?.id;
-        if (!explorer || roomId == origin || !explorer.UsedSavePoint(roomId)) return null;
-        return mirrors.FirstOrDefault(m => m.RoomId == roomId && FindLevel(m.LevelGuid));
+        if (!item || pending != null || returnToSave || !NearMirror(out _)) return null;
+        var door = item!.TryCast<LevelMapZDoorItem>();
+        if (!door && !item.TryCast<LevelMapSavePointItem>() && !item.TryCast<LevelMapLandmark>()) return null;
+        var roomId = door ? door!.linkedWorldRoomUniqueID : item.itemWorldRoomId;
+        if (string.IsNullOrEmpty(roomId) || !WasVisited(roomId)) return null;
+        var level = item.context?.level;
+        var manager = LevelManager.Get();
+        if (!level || !manager || !manager.worldDataDictionary.TryGetItem(level, out var reference)) return null;
+        var world = ResourceManager.LoadAssetByRef<WorldData>(ResourceContext.UI_GAMEMENU, reference);
+        if (!world) return null;
+        foreach (var room in world.GetRooms())
+        {
+            if (room.id != roomId || room.roomData.configuration.TryCast<RedWineRoomConfiguration>()?.isSaveRoom != true)
+                continue;
+            return new Mirror(roomId, level!.guid, room.instanceName, RoomDesignerExtensions.GetRoomCenterPosition(room));
+        }
+        return null;
     }
 
     private static LevelID? FindLevel(string guid)
@@ -91,24 +69,24 @@ internal sealed class MirrorTravel
 
     internal void Start(Mirror destination)
     {
-        if (pending != null || !NearMirror(out var player) || !GameStateManager.GetInstance().IsGameplayState())
+        if (pending != null || returnToSave || !NearMirror(out var player) || !GameStateManager.GetInstance().IsGameplayState())
             throw new InvalidOperationException("Travel is only available beside a mirror during normal gameplay.");
-        var explorer = MainCharacterSingleton.GetComponent<ExplorerComponent>();
         var level = FindLevel(destination.LevelGuid);
-        if (!explorer || !explorer.UsedSavePoint(destination.RoomId) || !level)
-            throw new InvalidOperationException("This mirror is not available in the current save.");
+        if (!WasVisited(destination.RoomId) || !level)
+            throw new InvalidOperationException("This mirror has not been visited in the current save.");
 
-        // Match normal fast travel's save-before-load sequence. Do not change
-        // exploration flags, unlock destinations, or overwrite the respawn point.
         SaveLogic.Get().SaveNoPosition(player, SaveOrigin.Flow);
         pending = destination;
+        arrival = null;
         var spawn = MainCharacterSpawnLogic.Get();
-        spawn.SetForcePosition(destination.Position, null);
+        // This only selects the room to stream. Place the player at its mirror
+        // before OnFirstRoomLoaded starts the room's camera and gameplay.
+        spawn.SetForcePosition(destination.RoomCenter, null);
         try
         {
             if (!LevelManager.Get().TryLoadLevelState(level, MainGameLoadingType.FastTravel, null))
                 throw new InvalidOperationException("The game refused the level transition.");
-            Plugin.Logger.LogInfo($"Travelling to {destination.Label} at {destination.Position}");
+            Plugin.Logger.LogInfo($"Travelling to visited mirror {destination.RoomId}");
         }
         catch
         {
@@ -128,20 +106,62 @@ internal sealed class MirrorTravel
             spawn.ClearForcePosition();
             return;
         }
-        spawn.SetForcePosition(pending.Position, null);
+        spawn.SetForcePosition(pending.RoomCenter, null);
+    }
+
+    internal void PlaceAtMirror(RoomManagerSystem manager, RoomStreamingHandle handle, ref RoomChunkID chunk)
+    {
+        if (pending == null) return;
+        if (handle.worldRoomData.id != pending.RoomId || !handle.roomInstance)
+            throw new InvalidOperationException("The loaded room does not match the selected mirror.");
+        var mirrors = handle.roomInstance.GetComponentsInChildren<SavePoint>(true);
+        if (mirrors.Length != 1)
+            throw new InvalidOperationException($"Expected one mirror in {pending.RoomId}, found {mirrors.Length}.");
+        var player = MainCharacterSingleton.GetEntity();
+        var position = mirrors[0].transform.position;
+        // SavePoint's root is at the player's feet; artwork is offset into depth.
+        position.z = player.transform.position.z;
+        position.y += 0.01f;
+        if (!float.IsFinite(position.x) || !float.IsFinite(position.y) || !float.IsFinite(position.z))
+            throw new InvalidOperationException("The mirror has an invalid position.");
+        MainCharacterSpawnLogic.Get().PlaceMainCharacter(position, player.transform.rotation);
+        if (!manager.GetEntityRoomAndChunk(player.gameObject, out var room, out var mirrorChunk, out _)
+            || room.worldRoomData.id != pending.RoomId)
+            throw new InvalidOperationException("The mirror's position is outside the destination room.");
+        chunk = mirrorChunk;
+        arrival = position;
+        Plugin.Logger.LogInfo($"Placed player at {pending.RoomId}: {position}");
+    }
+
+    internal void FailArrival(Exception error)
+    {
+        Plugin.Logger.LogError($"Mirror travel failed; returning to the saved mirror: {error}");
+        pending = null;
+        arrival = null;
+        MainCharacterSpawnLogic.Get().ClearForcePosition();
+        returnToSave = true;
     }
 
     internal void CheckArrival()
     {
         if (pending == null) return;
         var destination = pending;
-        pending = null;
         var player = MainCharacterSingleton.GetEntity();
         var roomId = LevelHelpers.GetCurrentRoom(player)?.worldRoomData?.id;
-        var distance = Vector3.Distance(player.transform.position, destination.Position);
-        if (roomId == destination.RoomId && distance < 3f)
-            Plugin.Logger.LogInfo($"Arrived at {destination.Label} (distance {distance:F2})");
-        else
-            Plugin.Logger.LogWarning($"Mirror arrival needs checking: expected {destination.RoomId}, got {roomId}; distance {distance:F2}");
+        if (arrival == null || roomId != destination.RoomId || Vector3.Distance(player.transform.position, arrival.Value) > 3f)
+        {
+            FailArrival(new InvalidOperationException($"Expected arrival in {destination.RoomId}, got {roomId}."));
+            return;
+        }
+        pending = null;
+        arrival = null;
+        Plugin.Logger.LogInfo($"Arrived at visited mirror {destination.RoomId}");
+    }
+
+    internal void Update()
+    {
+        if (!returnToSave || ApplicationFlowManager.IsLoading) return;
+        returnToSave = false;
+        LevelManager.Get().ReloadSaveState(MainGameLoadingType.FastTravel);
     }
 }

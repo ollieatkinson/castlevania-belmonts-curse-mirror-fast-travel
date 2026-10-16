@@ -2,8 +2,7 @@ using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using HarmonyLib;
-using MotherBase.EntityFramework;
-using UnityEngine;
+using RoomManager;
 
 namespace MirrorFastTravel;
 
@@ -20,19 +19,7 @@ public sealed class Plugin : BasePlugin
         Travel = new MirrorTravel();
         new Harmony(Id).PatchAll(typeof(Plugin).Assembly);
         AddComponent<MapTravel>();
-        Log.LogInfo("Mirror Fast Travel 0.1.0 loaded. Select a recorded mirror on the area map to travel.");
-    }
-}
-
-[HarmonyPatch(typeof(SaveLogic), nameof(SaveLogic.Save),
-    new[] { typeof(Entity), typeof(Vector3), typeof(SaveOrigin) })]
-internal static class RecordMirror
-{
-    private static void Postfix(Entity __0, Vector3 __1, SaveOrigin __2)
-    {
-        if (__2 != SaveOrigin.SavePoint) return;
-        try { Plugin.Travel.Record(__0, __1); }
-        catch (Exception e) { Plugin.Logger.LogError($"Could not record mirror: {e}"); }
+        Log.LogInfo("Mirror Fast Travel 0.1.0 loaded. Select a visited mirror on the area map to travel.");
     }
 }
 
@@ -42,7 +29,17 @@ internal static class PrepareArrival
     private static void Prefix(MainCharacterSpawnLogic __instance)
     {
         try { Plugin.Travel.PrepareArrival(__instance); }
-        catch (Exception e) { Plugin.Logger.LogError($"Could not prepare mirror arrival: {e}"); }
+        catch (Exception e) { Plugin.Travel.FailArrival(e); }
+    }
+}
+
+[HarmonyPatch(typeof(RoomManagerSystem), nameof(RoomManagerSystem.OnFirstRoomLoaded))]
+internal static class PlaceAtMirror
+{
+    private static void Prefix(RoomManagerSystem __instance, RoomStreamingHandle __0, ref RoomChunkID __1)
+    {
+        try { Plugin.Travel.PlaceAtMirror(__instance, __0, ref __1); }
+        catch (Exception e) { Plugin.Travel.FailArrival(e); }
     }
 }
 
@@ -52,6 +49,6 @@ internal static class CheckArrival
     private static void Postfix()
     {
         try { Plugin.Travel.CheckArrival(); }
-        catch (Exception e) { Plugin.Logger.LogError($"Could not verify mirror arrival: {e}"); }
+        catch (Exception e) { Plugin.Travel.FailArrival(e); }
     }
 }

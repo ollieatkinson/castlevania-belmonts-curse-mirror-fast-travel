@@ -14,6 +14,7 @@ public sealed class MapTravel : MonoBehaviour
     private bool confirmationOpen;
     private UILocalizedString? footnote;
     private bool footnoteWasEnabled;
+    private int lastSelection;
 
     public MapTravel(IntPtr pointer) : base(pointer) { }
     public void Awake() => Instance = this;
@@ -33,7 +34,15 @@ public sealed class MapTravel : MonoBehaviour
     [HideFromIl2Cpp]
     internal void RefreshFootnote(UIMapLevelManager manager, LevelMapItem item, bool fromInit)
     {
-        if (Plugin.Travel.FindDestination(item) == null) return;
+        if (!item) return;
+        var destination = Plugin.Travel.FindDestination(item);
+        var selection = item.GetInstanceID();
+        if (selection != lastSelection)
+        {
+            lastSelection = selection;
+            Plugin.Logger.LogInfo($"Map selection: {item.GetIl2CppType().Name}, room={item.itemWorldRoomId}, linked={item.TryCast<LevelMapZDoorItem>()?.linkedWorldRoomUniqueID}, nearMirror={MirrorTravel.NearMirror(out _)}, travel={destination != null}");
+        }
+        if (destination == null) return;
         var text = manager.interactFootnoteText;
         if (!text || !text.textDisplay) return;
         footnote = text;
@@ -84,9 +93,10 @@ public sealed class MapTravel : MonoBehaviour
 
     public void Update()
     {
-        if (queued == null) return;
         try
         {
+            Plugin.Travel.Update();
+            if (queued == null) return;
             if (Time.realtimeSinceStartup > deadline || ApplicationFlowManager.IsLoading)
             {
                 queued = null;
@@ -147,4 +157,25 @@ internal static class MirrorInteractionPrompt
 internal static class RestoreMapPrompt
 {
     private static void Prefix() => MapTravel.Instance?.RestoreFootnote();
+}
+
+[HarmonyPatch(typeof(LevelMapSavePointItem), nameof(LevelMapSavePointItem.Refresh))]
+internal static class SelectVisitedMirrors
+{
+    private static void Postfix(LevelMapSavePointItem __instance)
+    {
+        try { __instance.selectableItem = MirrorTravel.WasVisited(__instance.itemWorldRoomId); }
+        catch (Exception e) { Plugin.Logger.LogError($"Could not enable mirror selection: {e}"); }
+    }
+}
+
+// HasUsedSavePoint and IsSelectableInternal share the same native function.
+[HarmonyPatch(typeof(LevelMapSavePointItem), nameof(LevelMapSavePointItem.HasUsedSavePoint))]
+internal static class AllowVisitedMirrorSelection
+{
+    private static void Postfix(LevelMapSavePointItem __instance, ref bool __result)
+    {
+        try { __result = MirrorTravel.WasVisited(__instance.itemWorldRoomId); }
+        catch (Exception e) { Plugin.Logger.LogError($"Could not check visited mirror: {e}"); }
+    }
 }
