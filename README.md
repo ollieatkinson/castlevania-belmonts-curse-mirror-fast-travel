@@ -4,6 +4,8 @@ A BepInEx mod for Castlevania: Belmont's Curse that lets you travel between visi
 
 **Early prototype.** Uses the visited mirrors in your existing save; no need to revisit them after installing.
 
+![Selecting a visited Mirror of Life on the area map](docs/images/mirror-map.png)
+
 ## Install
 
 Requires [BepInEx 6 for Unity IL2CPP, Windows x64](https://docs.bepinex.dev/master/articles/user_guide/installation/unity_il2cpp.html). Run the game with BepInEx once before building or installing.
