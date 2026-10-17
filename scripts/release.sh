@@ -42,6 +42,7 @@ if [[ "$version" == *-* ]]; then
 fi
 gh release create "$tag" \
   "dist/MirrorFastTravel-$tag.zip" "dist/MirrorFastTravel-$tag.zip.sha256" \
+  "dist/MirrorFastTravel-$tag.standalone.zip" "dist/MirrorFastTravel-$tag.standalone.zip.sha256" \
   --repo "$repository" --target "$commit" \
   --title "$tag — Mirror Fast Travel" \
   --generate-notes "${release_flags[@]}"

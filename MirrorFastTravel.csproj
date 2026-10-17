@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>MirrorFastTravel</AssemblyName>
-    <Version>0.2.0</Version>
+    <Version>0.3.0</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
@@ -30,4 +30,5 @@
     <Error Condition="!Exists('$(GamePath)/BepInEx/interop/Assembly-CSharp.dll')"
            Text="Set GamePath to the game directory after running BepInEx once." />
   </Target>
+  <Import Project="packaging/Standalone.targets" />
 </Project>

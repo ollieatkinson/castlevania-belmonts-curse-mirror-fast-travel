@@ -9,7 +9,7 @@ namespace MirrorFastTravel;
 public sealed class MapTravel : MonoBehaviour
 {
     internal static MapTravel? Instance;
-    private Mirror? queued;
+    private TravelDestination? queued;
     private float deadline;
     private bool confirmationOpen;
     private UILocalizedString? footnote;
@@ -54,7 +54,7 @@ public sealed class MapTravel : MonoBehaviour
     }
 
     [HideFromIl2Cpp]
-    internal bool Confirm(Mirror destination)
+    internal bool Confirm(TravelDestination destination)
     {
         if (confirmationOpen || queued != null) return false;
         var ui = UIManager.GetInstance();
@@ -64,7 +64,26 @@ public sealed class MapTravel : MonoBehaviour
         confirmationOpen = true;
         try
         {
-            ui.OpenConfirmPopup(ui.fastTravelMenuManager.confirmationPopupTexts,
+            var texts = ui.fastTravelMenuManager.confirmationPopupTexts;
+            if (destination.LandmarkGuid != null)
+            {
+                var explorer = MainCharacterSingleton.GetComponent<ExplorerComponent>();
+                foreach (var landmark in explorer.discoveredLandmarks)
+                    if (landmark && landmark.guid == destination.LandmarkGuid && landmark.hasName)
+                    {
+                        // Texts is an IL2CPP value-type wrapper: copy it instead of
+                        // changing the fast-travel menu's shared confirmation texts.
+                        texts = new ConfirmationPopup.Texts
+                        {
+                            title = landmark.landmarkName,
+                            message = texts.message,
+                            cancel = texts.cancel,
+                            confirm = texts.confirm
+                        };
+                        break;
+                    }
+            }
+            ui.OpenConfirmPopup(texts,
                 DelegateSupport.ConvertDelegate<Il2CppSystem.Action>((Action)(() => confirmationOpen = false)),
                 DelegateSupport.ConvertDelegate<Il2CppSystem.Action>((Action)(() =>
                 {
@@ -118,6 +137,16 @@ public sealed class MapTravel : MonoBehaviour
     }
 }
 
+[HarmonyPatch(typeof(LevelMapLandmark), nameof(LevelMapLandmark.Refresh))]
+internal static class SelectDiscoveredLandmarks
+{
+    private static void Postfix(LevelMapLandmark __instance)
+    {
+        try { __instance.selectableItem = MirrorTravel.CanTravelToLandmark(__instance); }
+        catch (Exception e) { Plugin.Logger.LogError($"Could not enable POI selection: {e}"); }
+    }
+}
+
 [HarmonyPatch(typeof(LevelMapController), nameof(LevelMapController.UpdateCursorControls))]
 internal static class InteractWithMirror
 {
@@ -138,6 +167,29 @@ internal static class InteractWithMirror
             Plugin.Logger.LogError($"Could not open mirror travel: {e}");
             return true;
         }
+    }
+}
+
+[HarmonyPatch(typeof(LevelMapZDoorItem), nameof(LevelMapZDoorItem.IsSelectableInternal))]
+internal static class SelectVisitedFerryman
+{
+    private static void Postfix(LevelMapZDoorItem __instance, ref bool __result)
+    {
+        try { __result |= MirrorTravel.CanTravelToFerryman(__instance); }
+        catch (Exception e) { Plugin.Logger.LogError($"Could not enable ferryman selection: {e}"); }
+    }
+}
+
+[HarmonyPatch(typeof(LevelMapZDoorItem), nameof(LevelMapZDoorItem.Refresh))]
+internal static class EnableVisitedFerryman
+{
+    private static void Postfix(LevelMapZDoorItem __instance)
+    {
+        try
+        {
+            if (MirrorTravel.CanTravelToFerryman(__instance)) __instance.selectableItem = true;
+        }
+        catch (Exception e) { Plugin.Logger.LogError($"Could not enable ferryman map item: {e}"); }
     }
 }
 

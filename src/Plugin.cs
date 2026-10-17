@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
         Travel = new MirrorTravel();
         new Harmony(Id).PatchAll(typeof(Plugin).Assembly);
         AddComponent<MapTravel>();
-        Log.LogInfo($"Mirror Fast Travel {BuildInfo.Version} loaded. Select a visited mirror on the area map to travel.");
+        Log.LogInfo($"Mirror Fast Travel {BuildInfo.Version} loaded. Select a visited mirror, discovered POI, or visited ferryman on the area map to travel.");
     }
 }
 
@@ -34,11 +34,11 @@ internal static class PrepareArrival
 }
 
 [HarmonyPatch(typeof(RoomManagerSystem), nameof(RoomManagerSystem.OnFirstRoomLoaded))]
-internal static class PlaceAtMirror
+internal static class PlaceAtDestination
 {
     private static void Prefix(RoomManagerSystem __instance, RoomStreamingHandle __0, ref RoomChunkID __1)
     {
-        try { Plugin.Travel.PlaceAtMirror(__instance, __0, ref __1); }
+        try { Plugin.Travel.PlaceAtDestination(__instance, __0, ref __1); }
         catch (Exception e) { Plugin.Travel.FailArrival(e); }
     }
 }

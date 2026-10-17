@@ -37,3 +37,5 @@ checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
 archive.with_suffix(".zip.sha256").write_text(f"{checksum}  {archive.name}\n")
 print(f"Created {archive}")
 PY
+
+"$dotnet_command" msbuild MirrorFastTravel.csproj -t:PackageStandalone -p:Version="$version" -nologo

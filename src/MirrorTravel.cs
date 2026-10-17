@@ -1,4 +1,5 @@
 using MotherBase.ApplicationFlowManager;
+using MotherBase.ActionFramework;
 using MotherBase.EntityFramework;
 using MotherBase.RoomDesigner;
 using RedWine.ResourceManagement;
@@ -7,11 +8,12 @@ using UnityEngine;
 
 namespace MirrorFastTravel;
 
-internal sealed record Mirror(string RoomId, string LevelGuid, string Label, Vector3 RoomCenter);
+internal sealed record TravelDestination(string RoomId, string LevelGuid, string Label, Vector3 RoomCenter,
+    string? LandmarkGuid = null, bool IsFerryman = false);
 
 internal sealed class MirrorTravel
 {
-    private Mirror? pending;
+    private TravelDestination? pending;
     private Vector3? arrival;
     private bool returnToSave;
 
@@ -30,13 +32,48 @@ internal sealed class MirrorTravel
             && (state.usedRoomSavePoint || state.ExploredAtLeastOneChunk() || state.enteredZonesIds?.Count > 0);
     }
 
-    internal Mirror? FindDestination(LevelMapItem? item)
+    private static bool WasRoomVisited(string roomId)
+    {
+        var explorer = MainCharacterSingleton.GetComponent<ExplorerComponent>();
+        return explorer && explorer.worldRoomExplorationStates.TryGetValue(roomId, out var state)
+            && state != null
+            && (state.usedRoomSavePoint || state.ExploredAtLeastOneChunk() || state.enteredZonesIds?.Count > 0);
+    }
+
+    private static bool WasLandmarkDiscovered(string guid)
+    {
+        var explorer = MainCharacterSingleton.GetComponent<ExplorerComponent>();
+        if (!explorer || explorer.discoveredLandmarks == null) return false;
+        foreach (var landmark in explorer.discoveredLandmarks)
+            if (landmark && landmark.guid == guid) return true;
+        return false;
+    }
+
+    internal static bool CanTravelToLandmark(LevelMapLandmark landmark)
+    {
+        return landmark && landmark.landmarkData && !string.IsNullOrEmpty(landmark.itemWorldRoomId)
+            && WasRoomVisited(landmark.itemWorldRoomId)
+            && WasLandmarkDiscovered(landmark.landmarkData.guid);
+    }
+
+    internal static bool CanTravelToFerryman(LevelMapZDoorItem door)
+    {
+        return door && door.isFastTravelDoor && !string.IsNullOrEmpty(door.linkedWorldRoomUniqueID)
+            && WasRoomVisited(door.linkedWorldRoomUniqueID);
+    }
+
+    internal TravelDestination? FindDestination(LevelMapItem? item)
     {
         if (!item || pending != null || returnToSave || !TryGetPlayer(out _)) return null;
         var door = item!.TryCast<LevelMapZDoorItem>();
-        if (!door && !item.TryCast<LevelMapSavePointItem>() && !item.TryCast<LevelMapLandmark>()) return null;
+        var landmark = item.TryCast<LevelMapLandmark>();
+        if (!door && !item.TryCast<LevelMapSavePointItem>() && !landmark) return null;
         var roomId = door ? door!.linkedWorldRoomUniqueID : item.itemWorldRoomId;
-        if (string.IsNullOrEmpty(roomId) || !WasVisited(roomId)) return null;
+        if (string.IsNullOrEmpty(roomId)) return null;
+        bool isLandmark = landmark;
+        var isFerryman = door && CanTravelToFerryman(door!);
+        if (isLandmark && !CanTravelToLandmark(landmark!)) return null;
+        if (!isLandmark && !isFerryman && !WasVisited(roomId)) return null;
         var level = item.context?.level;
         var manager = LevelManager.Get();
         if (!level || !manager || !manager.worldDataDictionary.TryGetItem(level, out var reference)) return null;
@@ -44,9 +81,16 @@ internal sealed class MirrorTravel
         if (!world) return null;
         foreach (var room in world.GetRooms())
         {
-            if (room.id != roomId || room.roomData.configuration.TryCast<RedWineRoomConfiguration>()?.isSaveRoom != true)
-                continue;
-            return new Mirror(roomId, level!.guid, room.instanceName, RoomDesignerExtensions.GetRoomCenterPosition(room));
+            if (room.id != roomId) continue;
+            var configuration = room.roomData.configuration.TryCast<RedWineRoomConfiguration>();
+            if (isFerryman && configuration?.isFastTravelRoom != true) return null;
+            if (!isLandmark && !isFerryman && configuration?.isSaveRoom != true)
+                return null;
+            var label = isFerryman ? "Ferryman's Wharf" : isLandmark && landmark!.landmarkData.hasName
+                ? landmark.landmarkData.landmarkName.GetLocalizedString() : room.instanceName;
+            if (string.IsNullOrEmpty(label)) label = room.instanceName;
+            return new TravelDestination(roomId, level!.guid, label, RoomDesignerExtensions.GetRoomCenterPosition(room),
+                isLandmark ? landmark!.landmarkData.guid : null, isFerryman);
         }
         return null;
     }
@@ -60,26 +104,29 @@ internal sealed class MirrorTravel
         return null;
     }
 
-    internal void Start(Mirror destination)
+    internal void Start(TravelDestination destination)
     {
         if (pending != null || returnToSave || !TryGetPlayer(out var player) || !GameStateManager.GetInstance().IsGameplayState())
             throw new InvalidOperationException("Travel is only available during normal gameplay.");
         var level = FindLevel(destination.LevelGuid);
-        if (!WasVisited(destination.RoomId) || !level)
-            throw new InvalidOperationException("This mirror has not been visited in the current save.");
+        var discovered = destination.IsFerryman ? WasRoomVisited(destination.RoomId)
+            : destination.LandmarkGuid == null ? WasVisited(destination.RoomId)
+            : WasRoomVisited(destination.RoomId) && WasLandmarkDiscovered(destination.LandmarkGuid);
+        if (!discovered || !level)
+            throw new InvalidOperationException("This destination has not been visited in the current save.");
 
         SaveLogic.Get().SaveNoPosition(player, SaveOrigin.Flow);
         pending = destination;
         arrival = null;
         var spawn = MainCharacterSpawnLogic.Get();
-        // This only selects the room to stream. Place the player at its mirror
+        // This only selects the room to stream. Place the player at the destination
         // before OnFirstRoomLoaded starts the room's camera and gameplay.
         spawn.SetForcePosition(destination.RoomCenter, null);
         try
         {
             if (!LevelManager.Get().TryLoadLevelState(level, MainGameLoadingType.FastTravel, null))
                 throw new InvalidOperationException("The game refused the level transition.");
-            Plugin.Logger.LogInfo($"Travelling to visited mirror {destination.RoomId}");
+            Plugin.Logger.LogInfo($"Travelling to {destination.Label}: room={destination.RoomId}, landmark={destination.LandmarkGuid}, ferryman={destination.IsFerryman}");
         }
         catch
         {
@@ -102,33 +149,86 @@ internal sealed class MirrorTravel
         spawn.SetForcePosition(pending.RoomCenter, null);
     }
 
-    internal void PlaceAtMirror(RoomManagerSystem manager, RoomStreamingHandle handle, ref RoomChunkID chunk)
+    internal void PlaceAtDestination(RoomManagerSystem manager, RoomStreamingHandle handle, ref RoomChunkID chunk)
     {
         if (pending == null) return;
         if (handle.worldRoomData.id != pending.RoomId || !handle.roomInstance)
-            throw new InvalidOperationException("The loaded room does not match the selected mirror.");
-        var mirrors = handle.roomInstance.GetComponentsInChildren<SavePoint>(true);
-        if (mirrors.Length != 1)
-            throw new InvalidOperationException($"Expected one mirror in {pending.RoomId}, found {mirrors.Length}.");
+            throw new InvalidOperationException("The loaded room does not match the selected destination.");
         var player = MainCharacterSingleton.GetEntity();
-        var position = mirrors[0].transform.position;
-        // SavePoint's root is at the player's feet; artwork is offset into depth.
-        position.z = player.transform.position.z;
-        position.y += 0.01f;
+        Vector3 position;
+        if (pending.IsFerryman)
+        {
+            position = FindFerrymanArrival(handle, player);
+        }
+        else if (pending.LandmarkGuid == null)
+        {
+            var mirrors = handle.roomInstance.GetComponentsInChildren<SavePoint>(true);
+            if (mirrors.Length != 1)
+                throw new InvalidOperationException($"Expected one mirror in {pending.RoomId}, found {mirrors.Length}.");
+            position = mirrors[0].transform.position;
+            // SavePoint's root is at the player's feet; artwork is offset into depth.
+            position.z = player.transform.position.z;
+            position.y += 0.01f;
+        }
+        else
+        {
+            position = FindLandmarkArrival(handle, player, pending.LandmarkGuid);
+        }
         if (!float.IsFinite(position.x) || !float.IsFinite(position.y) || !float.IsFinite(position.z))
-            throw new InvalidOperationException("The mirror has an invalid position.");
+            throw new InvalidOperationException("The destination has an invalid position.");
         MainCharacterSpawnLogic.Get().PlaceMainCharacter(position, player.transform.rotation);
         if (!manager.GetEntityRoomAndChunk(player.gameObject, out var room, out var mirrorChunk, out _)
             || room.worldRoomData.id != pending.RoomId)
-            throw new InvalidOperationException("The mirror's position is outside the destination room.");
+            throw new InvalidOperationException("The arrival position is outside the destination room.");
         chunk = mirrorChunk;
         arrival = position;
         Plugin.Logger.LogInfo($"Placed player at {pending.RoomId}: {position}");
     }
 
+    private static Vector3 FindLandmarkArrival(RoomStreamingHandle handle, Entity player, string landmarkGuid)
+    {
+        foreach (var landmark in handle.roomInstance.GetComponentsInChildren<LandmarkComponent>(true))
+        {
+            if (!landmark.landmarkData || landmark.landmarkData.guid != landmarkGuid) continue;
+            if (TryFindStandingPosition(player, landmark.transform.position, out var position)) return position;
+        }
+        throw new InvalidOperationException($"No clear standing position found near landmark {landmarkGuid} in {handle.worldRoomData.id}.");
+    }
+
+    private static Vector3 FindFerrymanArrival(RoomStreamingHandle handle, Entity player)
+    {
+        if (handle.worldRoomData.roomData.configuration.TryCast<RedWineRoomConfiguration>()?.isFastTravelRoom != true)
+            throw new InvalidOperationException("The selected room is not a ferryman room.");
+        foreach (var ferryman in handle.roomInstance.GetComponentsInChildren<GPE_FastTravelComponent>(true))
+            if (TryFindStandingPosition(player, ferryman.transform.position, out var position)) return position;
+        throw new InvalidOperationException($"No clear standing position found near the ferryman in {handle.worldRoomData.id}.");
+    }
+
+    private static bool TryFindStandingPosition(Entity player, Vector3 anchor, out Vector3 position)
+    {
+        var motor = MainCharacterSingleton.GetComponent<CharacterMotor>();
+        if (!motor) throw new InvalidOperationException("The player's character motor is unavailable.");
+        Physics.SyncTransforms();
+        // Destination anchors can be above the floor. Let the game's capsule
+        // grounding code find a nearby standing position, then check clearance.
+        anchor.z = player.transform.position.z;
+        foreach (var offset in new[] { 0f, -1f, 1f, -2f, 2f, -3f, 3f })
+        {
+            position = anchor + new Vector3(offset, 2f, 0f);
+            var ground = new CharacterGroundingReport();
+            motor.ProbeGround(ref position, player.transform.rotation, 12f, ref ground);
+            if (!ground.isStableOnGround || !ground.groundCollider) continue;
+            position.y += 0.05f;
+            if (motor.CharacterCollisionsOverlap(position, player.transform.rotation, new Collider[16], 0f, false) == 0)
+                return true;
+        }
+        position = default;
+        return false;
+    }
+
     internal void FailArrival(Exception error)
     {
-        Plugin.Logger.LogError($"Mirror travel failed; returning to the saved mirror: {error}");
+        Plugin.Logger.LogError($"Travel failed; returning to the saved mirror: {error}");
         pending = null;
         arrival = null;
         MainCharacterSpawnLogic.Get().ClearForcePosition();
@@ -148,7 +248,7 @@ internal sealed class MirrorTravel
         }
         pending = null;
         arrival = null;
-        Plugin.Logger.LogInfo($"Arrived at visited mirror {destination.RoomId}");
+        Plugin.Logger.LogInfo($"Arrived at {destination.Label}: room={destination.RoomId}, landmark={destination.LandmarkGuid}");
     }
 
     internal void Update()
