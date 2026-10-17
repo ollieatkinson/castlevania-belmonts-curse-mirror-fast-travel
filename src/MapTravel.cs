@@ -40,7 +40,7 @@ public sealed class MapTravel : MonoBehaviour
         if (selection != lastSelection)
         {
             lastSelection = selection;
-            Plugin.Logger.LogInfo($"Map selection: {item.GetIl2CppType().Name}, room={item.itemWorldRoomId}, linked={item.TryCast<LevelMapZDoorItem>()?.linkedWorldRoomUniqueID}, nearMirror={MirrorTravel.NearMirror(out _)}, travel={destination != null}");
+            Plugin.Logger.LogInfo($"Map selection: {item.GetIl2CppType().Name}, room={item.itemWorldRoomId}, linked={item.TryCast<LevelMapZDoorItem>()?.linkedWorldRoomUniqueID}, playerAvailable={MirrorTravel.TryGetPlayer(out _)}, travel={destination != null}");
         }
         if (destination == null) return;
         var text = manager.interactFootnoteText;

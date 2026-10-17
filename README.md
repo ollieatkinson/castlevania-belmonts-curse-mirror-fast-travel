@@ -1,6 +1,6 @@
 # Mirror Fast Travel
 
-A BepInEx mod for Castlevania: Belmont's Curse that lets you travel between visited Mirrors of Life.
+A BepInEx mod for Castlevania: Belmont's Curse that lets you fast travel from anywhere to visited Mirrors of Life.
 
 **Early prototype.** Uses the visited mirrors in your existing save; no need to revisit them after installing.
 
@@ -10,7 +10,7 @@ Requires [BepInEx 6 for Unity IL2CPP, Windows x64](https://docs.bepinex.dev/mast
 
 Download the ZIP from [Releases](https://github.com/ollieatkinson/castlevania-belmonts-curse-mirror-fast-travel/releases) and extract it into the game directory. It places `MirrorFastTravel.dll` in `BepInEx/plugins/`.
 
-While standing beside a mirror, open the **area map** and select a visited mirror. Use the map's normal interact button when **Travel** appears, then confirm in the game's popup. Cancelling leaves you on the map.
+During normal gameplay, open the **area map** from anywhere and select a visited mirror. Use the map's normal interact button when **Travel** appears, then confirm in the game's popup. Cancelling leaves you on the map.
 
 The mod reads exploration from the current save and finds the mirror in the destination room. It uses the game's saving and level-loading code for travel. It does not unlock undiscovered mirrors or change game files.
 

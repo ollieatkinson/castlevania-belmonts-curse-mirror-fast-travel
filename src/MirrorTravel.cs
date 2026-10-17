@@ -15,18 +15,11 @@ internal sealed class MirrorTravel
     private Vector3? arrival;
     private bool returnToSave;
 
-    internal static bool NearMirror(out Entity player)
+    internal static bool TryGetPlayer(out Entity player)
     {
         player = null!;
-        if (ApplicationFlowManager.IsLoading || !MainCharacterSingleton.TryGetEntity(out player) || !player)
-            return false;
-        var room = LevelHelpers.GetCurrentRoom(player);
-        if (!room || room.worldRoomData?.roomData?.configuration?.TryCast<RedWineRoomConfiguration>()?.isSaveRoom != true)
-            return false;
-        foreach (var mirror in room.GetComponentsInChildren<SavePoint>(true))
-            if (mirror.isActiveAndEnabled && Vector2.Distance(player.transform.position, mirror.transform.position) < 6f)
-                return true;
-        return false;
+        return !ApplicationFlowManager.IsLoading
+            && MainCharacterSingleton.TryGetEntity(out player) && player;
     }
 
     internal static bool WasVisited(string roomId)
@@ -39,7 +32,7 @@ internal sealed class MirrorTravel
 
     internal Mirror? FindDestination(LevelMapItem? item)
     {
-        if (!item || pending != null || returnToSave || !NearMirror(out _)) return null;
+        if (!item || pending != null || returnToSave || !TryGetPlayer(out _)) return null;
         var door = item!.TryCast<LevelMapZDoorItem>();
         if (!door && !item.TryCast<LevelMapSavePointItem>() && !item.TryCast<LevelMapLandmark>()) return null;
         var roomId = door ? door!.linkedWorldRoomUniqueID : item.itemWorldRoomId;
@@ -69,8 +62,8 @@ internal sealed class MirrorTravel
 
     internal void Start(Mirror destination)
     {
-        if (pending != null || returnToSave || !NearMirror(out var player) || !GameStateManager.GetInstance().IsGameplayState())
-            throw new InvalidOperationException("Travel is only available beside a mirror during normal gameplay.");
+        if (pending != null || returnToSave || !TryGetPlayer(out var player) || !GameStateManager.GetInstance().IsGameplayState())
+            throw new InvalidOperationException("Travel is only available during normal gameplay.");
         var level = FindLevel(destination.LevelGuid);
         if (!WasVisited(destination.RoomId) || !level)
             throw new InvalidOperationException("This mirror has not been visited in the current save.");
