@@ -4,6 +4,8 @@ A BepInEx mod for Castlevania: Belmont's Curse that lets you fast travel from an
 
 **Early prototype.** Uses exploration in your existing save; no need to rediscover destinations after installing. Version 0.3.0 adds POI and ferryman travel, plus standalone downloads with BepInEx included.
 
+Version 0.3.1 fixes ferryman selection, shows the destination and area in confirmation titles, and keeps the confirmation question on one line.
+
 ## Install
 
 Download one ZIP from [Releases](https://github.com/ollieatkinson/castlevania-belmonts-curse-mirror-fast-travel/releases):

@@ -9,7 +9,8 @@ using UnityEngine;
 namespace MirrorFastTravel;
 
 internal sealed record TravelDestination(string RoomId, string LevelGuid, string Label, Vector3 RoomCenter,
-    string? LandmarkGuid = null, bool IsFerryman = false);
+    string? LandmarkGuid = null, bool IsFerryman = false,
+    string? FerrymanEntranceRoomId = null, int FerrymanEntranceDoorId = 0);
 
 internal sealed class MirrorTravel
 {
@@ -59,7 +60,17 @@ internal sealed class MirrorTravel
     internal static bool CanTravelToFerryman(LevelMapZDoorItem door)
     {
         return door && door.isFastTravelDoor && !string.IsNullOrEmpty(door.linkedWorldRoomUniqueID)
-            && WasRoomVisited(door.linkedWorldRoomUniqueID);
+            && WasFerrymanVisited(door.linkedWorldRoomUniqueID, door.itemWorldRoomId, door.zDoorID);
+    }
+
+    private static bool WasFerrymanVisited(string roomId, string? entranceRoomId, int entranceDoorId)
+    {
+        if (WasRoomVisited(roomId)) return true;
+        var explorer = MainCharacterSingleton.GetComponent<ExplorerComponent>();
+        // Special rooms may not have ordinary chunk exploration. Entering their
+        // door is also a saved record that the destination has been visited.
+        return explorer && !string.IsNullOrEmpty(entranceRoomId)
+            && explorer.EnteredZDoor(entranceRoomId, entranceDoorId);
     }
 
     internal TravelDestination? FindDestination(LevelMapItem? item)
@@ -86,13 +97,32 @@ internal sealed class MirrorTravel
             if (isFerryman && configuration?.isFastTravelRoom != true) return null;
             if (!isLandmark && !isFerryman && configuration?.isSaveRoom != true)
                 return null;
-            var label = isFerryman ? "Ferryman's Wharf" : isLandmark && landmark!.landmarkData.hasName
-                ? landmark.landmarkData.landmarkName.GetLocalizedString() : room.instanceName;
-            if (string.IsNullOrEmpty(label)) label = room.instanceName;
+            var label = isLandmark && landmark!.landmarkData.hasName
+                ? landmark.landmarkData.landmarkName.GetLocalizedString() : null;
+            if (string.IsNullOrWhiteSpace(label))
+                label = GetRoomLabel(world, level!, room, isFerryman ? "Ferryman's Wharf" : "Mirror of Life");
             return new TravelDestination(roomId, level!.guid, label, RoomDesignerExtensions.GetRoomCenterPosition(room),
-                isLandmark ? landmark!.landmarkData.guid : null, isFerryman);
+                isLandmark ? landmark!.landmarkData.guid : null, isFerryman,
+                isFerryman ? door!.itemWorldRoomId : null, isFerryman ? door!.zDoorID : 0);
         }
         return null;
+    }
+
+    private static string GetRoomLabel(WorldData world, LevelID level, WorldRoomData room, string kind)
+    {
+        try
+        {
+            var district = world.configuration.TryCast<RedWineWorldConfiguration>()?.FindRoomDistrict(room.id);
+            var area = district?.GetDistrictDisplayData()?.districtDisplayName?.GetLocalizedString();
+            if (string.IsNullOrWhiteSpace(area))
+                area = level.LoadLevelUIDisplayData()?.levelDisplayName?.GetLocalizedString();
+            return string.IsNullOrWhiteSpace(area) ? kind : $"{kind} — {area}";
+        }
+        catch (Exception e)
+        {
+            Plugin.Logger.LogWarning($"Could not resolve the destination's area name: {e.Message}");
+            return kind;
+        }
     }
 
     private static LevelID? FindLevel(string guid)
@@ -109,7 +139,8 @@ internal sealed class MirrorTravel
         if (pending != null || returnToSave || !TryGetPlayer(out var player) || !GameStateManager.GetInstance().IsGameplayState())
             throw new InvalidOperationException("Travel is only available during normal gameplay.");
         var level = FindLevel(destination.LevelGuid);
-        var discovered = destination.IsFerryman ? WasRoomVisited(destination.RoomId)
+        var discovered = destination.IsFerryman
+            ? WasFerrymanVisited(destination.RoomId, destination.FerrymanEntranceRoomId, destination.FerrymanEntranceDoorId)
             : destination.LandmarkGuid == null ? WasVisited(destination.RoomId)
             : WasRoomVisited(destination.RoomId) && WasLandmarkDiscovered(destination.LandmarkGuid);
         if (!discovered || !level)

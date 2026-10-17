@@ -2,6 +2,7 @@ using HarmonyLib;
 using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.Attributes;
 using MotherBase.ApplicationFlowManager;
+using TMPro;
 using UnityEngine;
 
 namespace MirrorFastTravel;
@@ -15,12 +16,23 @@ public sealed class MapTravel : MonoBehaviour
     private UILocalizedString? footnote;
     private bool footnoteWasEnabled;
     private int lastSelection;
+    private ConfirmationPopup? travelPopup;
+    private UILocalizedString? confirmationTitle;
+    private bool confirmationTitleWasEnabled;
+    private string? confirmationTitleText;
+    private TMP_Text? confirmationMessage;
+    private bool messageWordWrapping;
+    private bool messageAutoSizing;
+    private float messageFontSize;
+    private float messageFontSizeMin;
+    private float messageFontSizeMax;
 
     public MapTravel(IntPtr pointer) : base(pointer) { }
     public void Awake() => Instance = this;
     public void OnDestroy()
     {
         RestoreFootnote();
+        RestoreConfirmationTitle();
         Instance = null;
     }
 
@@ -29,6 +41,51 @@ public sealed class MapTravel : MonoBehaviour
     {
         if (footnote) footnote!.enabled = footnoteWasEnabled;
         footnote = null;
+    }
+
+    [HideFromIl2Cpp]
+    private void RestoreConfirmationTitle()
+    {
+        if (confirmationTitle) confirmationTitle!.enabled = confirmationTitleWasEnabled;
+        if (confirmationMessage)
+        {
+            confirmationMessage!.enableWordWrapping = messageWordWrapping;
+            confirmationMessage.enableAutoSizing = messageAutoSizing;
+            confirmationMessage.fontSizeMin = messageFontSizeMin;
+            confirmationMessage.fontSizeMax = messageFontSizeMax;
+            confirmationMessage.fontSize = messageFontSize;
+        }
+        confirmationMessage = null;
+        confirmationTitle = null;
+        confirmationTitleText = null;
+        travelPopup = null;
+    }
+
+    [HideFromIl2Cpp]
+    private void RefreshConfirmationTitle()
+    {
+        if (travelPopup == null) return;
+        if (!travelPopup || (!travelPopup!.visible && !confirmationOpen))
+        {
+            RestoreConfirmationTitle();
+            return;
+        }
+        // Localized popup text can finish updating after Show. Keep our title
+        // until this popup closes, then restore the component for other menus.
+        if (confirmationTitle && confirmationTitle!.textDisplay
+            && confirmationTitle.textDisplay.text != confirmationTitleText)
+            confirmationTitle.textDisplay.text = confirmationTitleText;
+        if (confirmationMessage)
+        {
+            // The stock prompt has whitespace before its question mark. Remove
+            // that break opportunity, including a line break from localization.
+            var text = confirmationMessage!.text;
+            if (!string.IsNullOrEmpty(text) && text.EndsWith('?'))
+            {
+                var prompt = text[..^1].TrimEnd() + "?";
+                if (prompt != text) confirmationMessage.text = prompt;
+            }
+        }
     }
 
     [HideFromIl2Cpp]
@@ -64,26 +121,7 @@ public sealed class MapTravel : MonoBehaviour
         confirmationOpen = true;
         try
         {
-            var texts = ui.fastTravelMenuManager.confirmationPopupTexts;
-            if (destination.LandmarkGuid != null)
-            {
-                var explorer = MainCharacterSingleton.GetComponent<ExplorerComponent>();
-                foreach (var landmark in explorer.discoveredLandmarks)
-                    if (landmark && landmark.guid == destination.LandmarkGuid && landmark.hasName)
-                    {
-                        // Texts is an IL2CPP value-type wrapper: copy it instead of
-                        // changing the fast-travel menu's shared confirmation texts.
-                        texts = new ConfirmationPopup.Texts
-                        {
-                            title = landmark.landmarkName,
-                            message = texts.message,
-                            cancel = texts.cancel,
-                            confirm = texts.confirm
-                        };
-                        break;
-                    }
-            }
-            ui.OpenConfirmPopup(texts,
+            ui.OpenConfirmPopup(ui.fastTravelMenuManager.confirmationPopupTexts,
                 DelegateSupport.ConvertDelegate<Il2CppSystem.Action>((Action)(() => confirmationOpen = false)),
                 DelegateSupport.ConvertDelegate<Il2CppSystem.Action>((Action)(() =>
                 {
@@ -101,11 +139,36 @@ public sealed class MapTravel : MonoBehaviour
                         Plugin.Logger.LogError($"Could not close the map for mirror travel: {e}");
                     }
                 })));
+            RestoreConfirmationTitle();
+            travelPopup = ui.confirmationPopup;
+            confirmationMessage = travelPopup.messageLabel?.textDisplay;
+            if (confirmationMessage)
+            {
+                messageWordWrapping = confirmationMessage!.enableWordWrapping;
+                messageAutoSizing = confirmationMessage.enableAutoSizing;
+                messageFontSize = confirmationMessage.fontSize;
+                messageFontSizeMin = confirmationMessage.fontSizeMin;
+                messageFontSizeMax = confirmationMessage.fontSizeMax;
+                confirmationMessage.enableWordWrapping = false;
+                confirmationMessage.fontSizeMin = messageFontSize * 0.65f;
+                confirmationMessage.fontSizeMax = messageFontSize;
+                confirmationMessage.enableAutoSizing = true;
+            }
+            confirmationTitle = travelPopup.titleLabel;
+            if (confirmationTitle && confirmationTitle!.textDisplay)
+            {
+                confirmationTitleWasEnabled = confirmationTitle.enabled;
+                confirmationTitle.enabled = false;
+                confirmationTitleText = destination.Label;
+            }
+            RefreshConfirmationTitle();
+            Plugin.Logger.LogInfo($"Travel confirmation: {destination.Label}");
             return true;
         }
         catch
         {
             confirmationOpen = false;
+            RestoreConfirmationTitle();
             throw;
         }
     }
@@ -114,6 +177,7 @@ public sealed class MapTravel : MonoBehaviour
     {
         try
         {
+            RefreshConfirmationTitle();
             Plugin.Travel.Update();
             if (queued == null) return;
             if (Time.realtimeSinceStartup > deadline || ApplicationFlowManager.IsLoading)
@@ -180,14 +244,15 @@ internal static class SelectVisitedFerryman
     }
 }
 
-[HarmonyPatch(typeof(LevelMapZDoorItem), nameof(LevelMapZDoorItem.Refresh))]
+[HarmonyPatch(typeof(LevelMapItem), nameof(LevelMapItem.IsSelectable))]
 internal static class EnableVisitedFerryman
 {
-    private static void Postfix(LevelMapZDoorItem __instance)
+    private static void Prefix(LevelMapItem __instance)
     {
         try
         {
-            if (MirrorTravel.CanTravelToFerryman(__instance)) __instance.selectableItem = true;
+            var door = __instance.TryCast<LevelMapZDoorItem>();
+            if (door && MirrorTravel.CanTravelToFerryman(door!)) door!.selectableItem = true;
         }
         catch (Exception e) { Plugin.Logger.LogError($"Could not enable ferryman map item: {e}"); }
     }
