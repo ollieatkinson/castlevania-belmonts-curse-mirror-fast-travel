@@ -8,7 +8,7 @@ A BepInEx mod for Castlevania: Belmont's Curse that lets you travel between visi
 
 Requires [BepInEx 6 for Unity IL2CPP, Windows x64](https://docs.bepinex.dev/master/articles/user_guide/installation/unity_il2cpp.html). Run the game with BepInEx once before building or installing.
 
-Copy `MirrorFastTravel.dll` into `BepInEx/plugins/`.
+Download the ZIP from [Releases](https://github.com/ollieatkinson/castlevania-belmonts-curse-mirror-fast-travel/releases) and extract it into the game directory. It places `MirrorFastTravel.dll` in `BepInEx/plugins/`.
 
 While standing beside a mirror, open the **area map** and select a visited mirror. Use the map's normal interact button when **Travel** appears, then confirm in the game's popup. Cancelling leaves you on the map.
 
@@ -25,3 +25,23 @@ dotnet build -c Release -p:GamePath="/path/to/Castlevania Belmont's Curse"
 ```
 
 The DLL is written to `bin/Release/net6.0/`. Game and BepInEx assemblies are references only; they are not bundled with the mod.
+
+## Package and release
+
+With Bash, Python 3, and the .NET 8 SDK installed, build a ZIP and SHA-256 checksum locally:
+
+```sh
+GamePath="/path/to/Castlevania Belmont's Curse" bash scripts/package.sh
+```
+
+Files are written to `dist/`. The ZIP contains the plugin under `BepInEx/plugins/`, this README, and the licence.
+
+To publish a version, install the [GitHub CLI](https://cli.github.com/), authenticate with `gh auth login`, and commit and push your changes. Then run:
+
+```sh
+GamePath="/path/to/Castlevania Belmont's Curse" bash scripts/release.sh v0.1.0
+```
+
+The script builds and packages the mod, creates a tag for the current commit, and publishes a GitHub release with the ZIP, checksum, and generated release notes. The version sets both the assembly version and the BepInEx plugin version. Tags such as `v0.2.0-preview.1` create prereleases.
+
+For future releases, pass the next version to the release script. Update `<Version>` in `MirrorFastTravel.csproj` when you want to change the default version used by local builds.

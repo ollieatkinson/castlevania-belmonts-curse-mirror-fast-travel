@@ -6,7 +6,7 @@ using RoomManager;
 
 namespace MirrorFastTravel;
 
-[BepInPlugin(Id, "Mirror Fast Travel", "0.1.0")]
+[BepInPlugin(Id, "Mirror Fast Travel", BuildInfo.Version)]
 public sealed class Plugin : BasePlugin
 {
     public const string Id = "ollieatkinson.mirrorfasttravel";
@@ -19,7 +19,7 @@ public sealed class Plugin : BasePlugin
         Travel = new MirrorTravel();
         new Harmony(Id).PatchAll(typeof(Plugin).Assembly);
         AddComponent<MapTravel>();
-        Log.LogInfo("Mirror Fast Travel 0.1.0 loaded. Select a visited mirror on the area map to travel.");
+        Log.LogInfo($"Mirror Fast Travel {BuildInfo.Version} loaded. Select a visited mirror on the area map to travel.");
     }
 }
 
