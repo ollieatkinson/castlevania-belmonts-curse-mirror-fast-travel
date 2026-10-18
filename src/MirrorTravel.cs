@@ -17,6 +17,7 @@ internal sealed class MirrorTravel
     private TravelDestination? pending;
     private Vector3? arrival;
     private bool returnToSave;
+    private bool ownsForcePosition;
 
     internal static bool TryGetPlayer(out Entity player)
     {
@@ -152,9 +153,13 @@ internal sealed class MirrorTravel
         var spawn = MainCharacterSpawnLogic.Get();
         // This only selects the room to stream. Place the player at the destination
         // before OnFirstRoomLoaded starts the room's camera and gameplay.
-        spawn.SetForcePosition(destination.RoomCenter, null);
         try
         {
+            // Acquire ownership before calling native code so failure can also clean up.
+            ownsForcePosition = true;
+            spawn.SetForcePosition(destination.RoomCenter, null);
+            Plugin.Logger.LogInfo($"Travel requested: destination={destination.RoomId}, level={destination.LevelGuid}, streamingPosition={destination.RoomCenter}");
+            TravelDiagnostics.Snapshot("travel-request");
             if (!LevelManager.Get().TryLoadLevelState(level, MainGameLoadingType.FastTravel, null))
                 throw new InvalidOperationException("The game refused the level transition.");
             Plugin.Logger.LogInfo($"Travelling to {destination.Label}: room={destination.RoomId}, landmark={destination.LandmarkGuid}, ferryman={destination.IsFerryman}");
@@ -162,7 +167,8 @@ internal sealed class MirrorTravel
         catch
         {
             pending = null;
-            spawn.ClearForcePosition();
+            arrival = null;
+            ReleaseForcePosition("transition refused or threw");
             throw;
         }
     }
@@ -173,8 +179,10 @@ internal sealed class MirrorTravel
         var level = LevelManager.Get().loadingLevelVariable.CurrentValue;
         if (!level || level.guid != pending.LevelGuid)
         {
+            Plugin.Logger.LogWarning($"Travel interrupted by a different load: expectedLevel={pending.LevelGuid}, actualLevel={level?.guid}");
             pending = null;
-            spawn.ClearForcePosition();
+            arrival = null;
+            ReleaseForcePosition("different level initialized");
             return;
         }
         spawn.SetForcePosition(pending.RoomCenter, null);
@@ -262,8 +270,9 @@ internal sealed class MirrorTravel
         Plugin.Logger.LogError($"Travel failed; returning to the saved mirror: {error}");
         pending = null;
         arrival = null;
-        MainCharacterSpawnLogic.Get().ClearForcePosition();
+        ReleaseForcePosition("arrival failed");
         returnToSave = true;
+        TravelDiagnostics.Snapshot("arrival-failed");
     }
 
     internal void CheckArrival()
@@ -277,15 +286,28 @@ internal sealed class MirrorTravel
             FailArrival(new InvalidOperationException($"Expected arrival in {destination.RoomId}, got {roomId}."));
             return;
         }
+        ReleaseForcePosition("arrival completed");
         pending = null;
         arrival = null;
-        Plugin.Logger.LogInfo($"Arrived at {destination.Label}: room={destination.RoomId}, landmark={destination.LandmarkGuid}");
+        Plugin.Logger.LogInfo($"Arrived at {destination.Label}: room={destination.RoomId}, landmark={destination.LandmarkGuid}; player position verified (rendering is not verified)");
+    }
+
+    private void ReleaseForcePosition(string reason)
+    {
+        // Never clear spawn state for ordinary game transitions that we don't own.
+        if (!ownsForcePosition) return;
+        var spawn = MainCharacterSpawnLogic.Get();
+        var wasForced = spawn._forceSpawnPosition;
+        spawn.ClearForcePosition();
+        ownsForcePosition = false;
+        Plugin.Logger.LogInfo($"Released travel spawn override: reason={reason}, wasForced={wasForced}, forcedNow={spawn._forceSpawnPosition}");
     }
 
     internal void Update()
     {
         if (!returnToSave || ApplicationFlowManager.IsLoading) return;
         returnToSave = false;
+        TravelDiagnostics.Snapshot("return-to-saved-mirror");
         LevelManager.Get().ReloadSaveState(MainGameLoadingType.FastTravel);
     }
 }

@@ -13,6 +13,7 @@ public sealed class MapTravel : MonoBehaviour
     private TravelDestination? queued;
     private float deadline;
     private bool confirmationOpen;
+    private readonly TravelStartGate startGate = new();
     private UILocalizedString? footnote;
     private bool footnoteWasEnabled;
     private int lastSelection;
@@ -130,7 +131,9 @@ public sealed class MapTravel : MonoBehaviour
                     {
                         if (!ui.TryGetMenuManager(out var menu) || !menu) return;
                         queued = destination;
+                        startGate.Reset();
                         deadline = Time.realtimeSinceStartup + 10f;
+                        TravelDiagnostics.Snapshot($"map-close-request destination={destination.RoomId}");
                         menu.Close();
                     }
                     catch (Exception e)
@@ -178,19 +181,27 @@ public sealed class MapTravel : MonoBehaviour
         try
         {
             RefreshConfirmationTitle();
+            TravelDiagnostics.Update();
             Plugin.Travel.Update();
             if (queued == null) return;
             if (Time.realtimeSinceStartup > deadline || ApplicationFlowManager.IsLoading)
             {
                 queued = null;
+                startGate.Reset();
                 Plugin.Logger.LogWarning("Mirror travel cancelled: the map did not close or another load started.");
+                TravelDiagnostics.Snapshot("map-close-cancelled");
                 return;
             }
             var ui = UIManager.GetInstance();
-            if (!ui || !ui.TryGetMenuManager(out var menu) || menu.IsShowing() || ui.confirmationPopup.visible
-                || !GameStateManager.GetInstance().IsGameplayState()) return;
+            var ready = ui && ui.TryGetMenuManager(out var menu) && menu && !menu.IsShowing()
+                && ui.confirmationPopup && !ui.confirmationPopup.visible
+                && GameStateManager.GetInstance().IsGameplayState();
+            if (!startGate.CanStart(ready, Time.realtimeSinceStartup, Time.frameCount)) return;
+            RestoreFootnote();
+            RestoreConfirmationTitle();
             var target = queued;
             queued = null;
+            startGate.Reset();
             Plugin.Travel.Start(target);
         }
         catch (Exception e)
