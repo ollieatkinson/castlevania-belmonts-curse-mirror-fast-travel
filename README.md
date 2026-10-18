@@ -6,7 +6,7 @@ A BepInEx mod for Castlevania: Belmont's Curse that lets you fast travel from an
 
 Version 0.3.1 fixes ferryman selection, shows the destination and area in confirmation titles, and keeps the confirmation question on one line.
 
-Version 0.3.2-preview.1 adds precautionary transition fixes and diagnostics for intermittent black screens. It clears the mod's forced spawn position after arrival and waits for the map to remain closed for at least 0.2 seconds and two frames before starting travel. This is a test build; the reported black screen has not yet been reproduced or confirmed fixed.
+Version 0.3.2 adds precautionary transition fixes and diagnostics for intermittent black screens. It clears the mod's forced spawn position after arrival and waits for the map to remain closed for at least 0.2 seconds and two frames before starting travel. The reported black screen has not yet been reproduced or confirmed fixed.
 
 ## Install
 
@@ -31,7 +31,7 @@ To uninstall, close the game and delete `BepInEx/plugins/MirrorFastTravel.dll`.
 
 You can test with any visited mirror; no particular Hall of Mirrors destination is required. Travel between two available mirrors several times, then try opening and closing the menu after arrival. For compatibility testing, restart with Mirror Fast Travel as the only plugin, then add other plugins one at a time.
 
-The preview logs transition stages, player and spawn state, menu visibility, and camera state in `BepInEx/LogOutput.log`. It also records camera state 1, 5, and 15 seconds after loading, including ordinary game transitions. If a black screen occurs, wait at least 15 seconds if possible, then close the game and copy the log before restarting. Include the origin, destination, other installed mods, and whether Rose still moves or the menu leaves trails. An `Arrived` message verifies player placement only; it does not verify rendering.
+The mod logs transition stages, player and spawn state, menu visibility, and camera state in `BepInEx/LogOutput.log`. It also records camera state 1, 5, and 15 seconds after loading, including ordinary game transitions. If a black screen occurs, wait at least 15 seconds if possible, then close the game and copy the log before restarting. Include the origin, destination, other installed mods, and whether Rose still moves or the menu leaves trails. An `Arrived` message verifies player placement only; it does not verify rendering.
 
 The startup log prints Unity's reported log path, which may help locate `Player.log` when it is available. Diagnostics work in the BepInEx log without a separate Unity log. To disable the additional snapshots after testing, set `Enabled = false` under `[Diagnostics]` in `BepInEx/config/ollieatkinson.mirrorfasttravel.cfg` while the game is closed.
 
