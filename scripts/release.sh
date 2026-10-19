@@ -40,9 +40,14 @@ release_flags=()
 if [[ "$version" == *-* ]]; then
   release_flags+=(--prerelease --latest=false)
 fi
+if [[ -f "releases/$tag.md" ]]; then
+  release_flags+=(--notes-file "releases/$tag.md")
+else
+  release_flags+=(--generate-notes)
+fi
 gh release create "$tag" \
   "dist/MirrorFastTravel-$tag.zip" "dist/MirrorFastTravel-$tag.zip.sha256" \
   "dist/MirrorFastTravel-$tag.standalone.zip" "dist/MirrorFastTravel-$tag.standalone.zip.sha256" \
   --repo "$repository" --target "$commit" \
   --title "$tag — Mirror Fast Travel" \
-  --generate-notes "${release_flags[@]}"
+  "${release_flags[@]}"

@@ -15,7 +15,11 @@ Download one ZIP from [Releases](https://github.com/ollieatkinson/castlevania-be
 - **`.standalone.zip`** includes BepInEx 6.0.788 for Unity IL2CPP, Windows x64. Use this for a fresh install.
 - **`.zip`** contains only the mod. Use this if BepInEx is already installed.
 
-Close the game and extract your chosen ZIP into the game directory, beside the game executable. It places `MirrorFastTravel.dll` in `BepInEx/plugins/`. The first launch with BepInEx may take a few minutes while it generates game assemblies.
+Close the game. Extract the **whole ZIP into the main game folder**, beside `Castlevania Belmont's Curse.exe`. **Do not extract into `BepInEx` or `plugins`.** On Windows, the standalone also includes `Install.cmd`: extract anywhere and run it to find the game folder or select the game EXE. It handles archives accidentally extracted inside `BepInEx`.
+
+The mod must be at `BepInEx/plugins/MirrorFastTravel.dll`, with only one `BepInEx` in the path. The loose `winhttp.dll` belongs beside the game EXE; it loads BepInEx. `INSTALL.txt` shows the complete layout. The first BepInEx launch may take a few minutes.
+
+If nothing loads, share `BepInEx/LogOutput.log`. If that log is missing, check that `winhttp.dll`, `dotnet` and `BepInEx` are all beside the game EXE.
 
 On Linux/Proton, add `WINEDLLOVERRIDES="winhttp=n,b" %command%` to the game's Steam launch options. Keep any other launch options you need.
 
